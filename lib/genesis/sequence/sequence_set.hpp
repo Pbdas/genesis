@@ -105,6 +105,15 @@ public:
     reference       operator[] ( size_t index );
     const_reference operator[] ( size_t index ) const;
 
+    /**
+     * @brief Implicit conversion, so that a SequenceSet can be used in functions
+     * that expect a `std::vector` instead.
+     */
+    operator std::vector<Sequence> const&() const
+    {
+        return sequences_;
+    }
+
     // -------------------------------------------------------------------------
     //     Modifiers
     // -------------------------------------------------------------------------
