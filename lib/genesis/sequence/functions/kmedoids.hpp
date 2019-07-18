@@ -35,6 +35,7 @@
 #include "genesis/utils/math/kmeans.hpp"
 #include "genesis/utils/containers/matrix.hpp"
 #include "genesis/sequence/sequence.hpp"
+#include "genesis/sequence/sequence_set.hpp"
 
 #include <unordered_map>
 
@@ -51,7 +52,7 @@ namespace sequence {
 // =================================================================================================
 
 class SequenceKmedoids
-    : public utils::Kmeans< Sequence >
+    : public utils::Kmeans< size_t >
 {
 public:
 
@@ -59,14 +60,13 @@ public:
     //     Typedefs and Constants
     // -------------------------------------------------------------------------
 
-    using Point = Sequence;
-
+    using Point     = Sequence;
+    using BasePoint = size_t;
     // -------------------------------------------------------------------------
     //     Constructors and Rule of Five
     // -------------------------------------------------------------------------
 
     SequenceKmedoids() = default;
-    SequenceKmedoids( bool use_pwd ) : use_pwd_( use_pwd ) {};
     virtual ~SequenceKmedoids() override = default;
 
     SequenceKmedoids( SequenceKmedoids const& ) = default;
@@ -76,6 +76,29 @@ public:
     SequenceKmedoids& operator= ( SequenceKmedoids&& )      = default;
 
     // -------------------------------------------------------------------------
+    //     Data Access
+    // -------------------------------------------------------------------------
+
+    SequenceSet const& medoids() const
+    {
+        return medoids_;
+    }
+
+    Kmeans& medoids( SequenceSet const& value )
+    {
+        medoids_ = value;
+        return *this;
+    }
+
+    void clear()
+    {
+        pairwise_distances_.clear();
+        medoid_set_.clear();
+        medoids_.clear();
+        Kmeans::clear();
+    }
+
+    // -------------------------------------------------------------------------
     //     Settings
     // -------------------------------------------------------------------------
 
@@ -83,25 +106,28 @@ public:
     //     Default K-Means Functions
     // -------------------------------------------------------------------------
 
+    size_t run( SequenceSet const& data, size_t const k );
+
 protected:
-    virtual void initialize( std::vector<Point> const& data, size_t const k ) override;
+    // size_t run( std::vector<size_t> const& data, size_t const k );
 
 private:
+    std::vector<SequenceKmedoids::BasePoint> initialize( SequenceSet const& data, size_t const k );
 
-    virtual bool data_validation( std::vector<Point> const& data ) const override;
+    bool data_validation( SequenceSet const& data ) const;
 
     virtual void update_centroids(
-        std::vector<Point>  const& data,
+        std::vector<BasePoint>  const& data,
         std::vector<size_t> const& assignments,
-        std::vector<Point>&        centroids
+        std::vector<BasePoint>&        centroids
     ) override;
 
-    virtual double distance( Point const& lhs, Point const& rhs ) const override;
+    virtual double distance( BasePoint const& lhs, BasePoint const& rhs ) const override;
 
     double cost(
-        std::vector<Point>  const& data,
+        std::vector<BasePoint>  const& data,
         std::vector<size_t> const& assignments,
-        std::vector<Point>  const& centroids
+        std::vector<BasePoint>  const& centroids
     ) const;
 
     // -------------------------------------------------------------------------
@@ -109,10 +135,11 @@ private:
     // -------------------------------------------------------------------------
 
     // Pairwise distance matrix
-    bool const use_pwd_ = true;
     utils::Matrix<double> pairwise_distances_;
-    std::unordered_map<std::string, size_t> label_to_id_;
-    std::unordered_set<size_t> medoid_set_;
+    // std::unordered_map<std::string, size_t> label_to_id_;
+    std::unordered_set<BasePoint> medoid_set_;
+
+    SequenceSet medoids_;
 };
 
 } // namespace sequence

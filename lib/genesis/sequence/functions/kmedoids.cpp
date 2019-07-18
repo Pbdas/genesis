@@ -57,57 +57,68 @@ namespace sequence {
 // =================================================================================================
 
 /*
-    Override of the initialize function that additionally precomputes the pairwise distance matrix
+    Overload of the initialize function that additionally precomputes the pairwise distance matrix
  */
-void SequenceKmedoids::initialize( std::vector<Point> const& data, size_t const k )
+std::vector<SequenceKmedoids::BasePoint> SequenceKmedoids::initialize( SequenceSet const& data, size_t const k )
 {
     size_t const N = data.size();
-    // initialize the translation from datapoint labels to IDs
+
+    medoid_set_.reserve( k );
+
+    // initialize the PWD
+    pairwise_distances_ = utils::Matrix<double>(N, N, 0.0);
+
+    #pragma omp parallel for
     for ( size_t i = 0; i < N; ++i ) {
-        label_to_id_[ data[ i ].label() ] = i;
-    }
-
-    if ( use_pwd_ ) {
-        // initialize the PWD
-        pairwise_distances_ = utils::Matrix<double>(N, N, 0.0);
-
-        #pragma omp parallel for
-        for ( size_t i = 0; i < N; ++i ) {
-            for ( size_t j = i+1; j < N; ++j ) {
-                auto dist = hamming_distance( data[i], data[j] );
-                pairwise_distances_( i, j ) = dist;
-                pairwise_distances_( j, i ) = dist;
-            }
+        for ( size_t j = i+1; j < N; ++j ) {
+            auto dist = hamming_distance( data[i], data[j] );
+            pairwise_distances_( i, j ) = dist;
+            pairwise_distances_( j, i ) = dist;
         }
     }
 
-    // call the same function of the base class
-    Kmeans::initialize( data, k );
+    // create the "fake" data that the underlying kmeans impl. will work with
+    // i.e. the indices to the pairwise distance matrix
+    std::vector<BasePoint> fake_data( N );
+    #pragma omp parallel for
+    for ( size_t i = 0; i < N; ++i ) {
+        fake_data[ i ] = i;
+    }
+
+    return fake_data;
 }
 
-bool SequenceKmedoids::data_validation( std::vector<Point> const& data ) const
+bool SequenceKmedoids::data_validation( SequenceSet const& data ) const
 {
-    // check if sequences are of equal length
-    if( data.size() == 0 ) {
-        return true;
+    return is_alignment( data );
+}
+
+size_t SequenceKmedoids::run( SequenceSet const& data, size_t const k )
+{
+    // Validate the data. The function might also throw on its own, in order
+    // to provide a more helpful message about what is actually invalid about the data.
+    if( ! data_validation( data ) ) {
+        throw std::runtime_error( "Invalid data: Sequences need to be of equal length." );
     }
 
-    size_t length = data[0].length();
-    for( auto& s : data ) {
-        if( s.length() != length ) {
-            return false;
-        }
+    // run the udnerlying kmeans
+    auto iterations = Kmeans::run( initialize( data, k ), k );
+
+    // set the result medoids
+    for( auto const& c : centroids() ) {
+        medoids_.add( data[ c ] );
     }
-    return true;
+
+    return iterations;
 }
 
 /*
  * Evaluates the cost of a given configuration of datapoints and their assignments to medoids
  */
 double SequenceKmedoids::cost(
-    std::vector<Point>  const& data,
+    std::vector<BasePoint>  const& data,
     std::vector<size_t> const& assignments,
-    std::vector<Point>  const& medoids
+    std::vector<BasePoint>  const& medoids
 ) const {
     assert( data.size() == assignments.size() );
 
@@ -120,9 +131,9 @@ double SequenceKmedoids::cost(
 }
 
 void SequenceKmedoids::update_centroids(
-    std::vector<Point>  const& data,
+    std::vector<BasePoint>  const& data,
     std::vector<size_t> const& assignments,
-    std::vector<Point>&        medoids
+    std::vector<BasePoint>&        medoids
 ) {
     // This function is only called from within the run() function, which already
     // checks this condition. So, simply assert it here, instead of throwing.
@@ -140,7 +151,7 @@ void SequenceKmedoids::update_centroids(
     if( medoid_set_.size() != medoids.size() ) {
         medoid_set_.clear();
         for ( auto const& medoid : medoids ) {
-            medoid_set_.insert( label_to_id_[ medoid.label() ] );
+            medoid_set_.insert( medoid );
         }
     }
 
@@ -150,21 +161,22 @@ void SequenceKmedoids::update_centroids(
         auto original_medoid = medoid;
         bool better_found = false;
         // find a new medoid that would improve the overall clustering
-        for( size_t point = 0; point < data.size(); ++point ) {
+        for( size_t cur_non_medoid = 0; cur_non_medoid < data.size(); ++cur_non_medoid ) {
             // only try non-medoids
-            if ( utils::contains( medoid_set_, point ) ) {
+            // auto cur_non_medoid = data[ i ];
+            if ( utils::contains( medoid_set_, cur_non_medoid ) ) {
                 continue;
             }
 
             // propose a new configuration
-            medoid = data[ point ];
+            medoid = data[ cur_non_medoid ];
             assign_to_centroids( data, medoids, proposal_assignments );
             auto new_cost = cost( data, proposal_assignments, medoids );
             if( new_cost < previous_cost ) {
                 // better config found for this medoid, continue with the next
                 previous_cost = new_cost;
                 medoid_set_.erase( cur_medoid_id );
-                medoid_set_.insert( point );
+                medoid_set_.insert( cur_non_medoid );
                 better_found = true;
                 break;
             }
@@ -177,14 +189,9 @@ void SequenceKmedoids::update_centroids(
     }
 }
 
-double SequenceKmedoids::distance( Point const& lhs, Point const& rhs ) const
+double SequenceKmedoids::distance( BasePoint const& lhs, BasePoint const& rhs ) const
 {
-    if ( use_pwd_ ) {
-        return pairwise_distances_( label_to_id_.at( lhs.label() ),
-                                    label_to_id_.at( rhs.label() ) );
-    } else {
-        return hamming_distance( lhs, rhs );
-    }
+    return pairwise_distances_( lhs, rhs );
 }
 
 } // namespace sequence
