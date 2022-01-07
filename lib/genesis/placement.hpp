@@ -41,6 +41,7 @@
 #include "genesis/placement/formats/serializer.hpp"
 #include "genesis/placement/function/cog.hpp"
 #include "genesis/placement/function/distances.hpp"
+#include "genesis/placement/function/diversity.hpp"
 #include "genesis/placement/function/emd.hpp"
 #include "genesis/placement/function/epca.hpp"
 #include "genesis/placement/function/functions.hpp"
